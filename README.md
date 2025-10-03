@@ -34,3 +34,31 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Kanban Notes - local setup
+
+This project includes a simple draggable kanban board and a theme color that is persisted to Supabase.
+
+1. Install dependencies:
+
+```powershell
+npm install
+```
+
+2. Add a `.env.local` with your Supabase values:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+3. Recommended simple database schema:
+
+- Table `settings` with columns `key text PRIMARY KEY`, `value text`.
+
+Optional tables for full persistence:
+
+- `columns` (id text PRIMARY KEY, title text, position int)
+- `cards` (id text PRIMARY KEY, title text, description text, column_id text, position int)
+
+Run the dev server with `npm run dev`. The UI currently uses in-memory sample cards; you can extend `src/components/Board.tsx` to fetch/persist cards and columns.
