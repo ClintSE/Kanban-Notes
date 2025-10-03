@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { getUser, onAuthStateChange, signInWithGoogle, signOut } from '../lib/supabaseClient';
 
 export default function Auth(): React.ReactElement {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     let mounted = true;
     getUser().then(u => { if (mounted) setUser(u); });
-    const sub = onAuthStateChange((event, session) => {
+    const sub = onAuthStateChange((_event, _session) => {
+      // refresh user and app state on auth changes
       getUser().then(u => { setUser(u); window.dispatchEvent(new CustomEvent('kanban:refresh')); });
     });
     return () => { mounted = false; sub?.unsubscribe?.(); };

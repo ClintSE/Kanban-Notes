@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module 'react-beautiful-dnd' {
   import * as React from 'react';
 

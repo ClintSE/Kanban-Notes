@@ -58,13 +58,13 @@ export default function Board(): React.ReactElement {
       try {
         const { error } = await upsertCards(updated);
         if (error) throw error;
-      } catch (e) {
+      } catch {
         // on error, reload authoritative state
         try {
           const res = await fetchBoard();
           setColumns(res.columns);
           setCards(res.cards);
-        } catch (_err) {
+        } catch {
           // ignore
         }
       }
@@ -78,14 +78,16 @@ export default function Board(): React.ReactElement {
     try {
       const { error } = await upsertCard(newCard);
       if (error) throw error;
-    } catch (e) {
+    } catch {
       // revert on failure
       setCards(prev);
       try {
         const res = await fetchBoard();
         setColumns(res.columns);
         setCards(res.cards);
-      } catch (_err) {}
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -95,14 +97,16 @@ export default function Board(): React.ReactElement {
     try {
       const { error } = await upsertCard(card);
       if (error) throw error;
-    } catch (e) {
+    } catch {
       // revert on failure
       setCards(prev);
       try {
         const res = await fetchBoard();
         setColumns(res.columns);
         setCards(res.cards);
-      } catch (_err) {}
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -112,14 +116,16 @@ export default function Board(): React.ReactElement {
     try {
       const { error } = await deleteCard(id);
       if (error) throw error;
-    } catch (e) {
+    } catch {
       // revert
       setCards(prev);
       try {
         const res = await fetchBoard();
         setColumns(res.columns);
         setCards(res.cards);
-      } catch (_err) {}
+      } catch {
+        // ignore
+      }
     }
   }
 

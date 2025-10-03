@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { User } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
@@ -20,18 +21,19 @@ type CardRow = { id: string; title: string; description?: string; column_id: str
 
 export async function getSetting(key: string): Promise<string | null> {
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
+  const user: User | null = userRes?.data?.user ?? null;
   let query = supabase.from('settings').select('value').eq('key', key);
   if (user) query = query.eq('user_id', user.id);
   const { data, error } = await query.single();
   if (error) return null;
-  return data?.value ?? null;
+  // data is a row like { value: string }
+  return (data as { value?: string } | null)?.value ?? null;
 }
 
 export async function upsertSetting(key: string, value: string) {
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
-  const payload: any = { key, value };
+  const user: User | null = userRes?.data?.user ?? null;
+  const payload: { key: string; value: string; user_id?: string } = { key, value };
   if (user) payload.user_id = user.id;
   return supabase.from('settings').upsert(payload);
 }
@@ -39,42 +41,42 @@ export async function upsertSetting(key: string, value: string) {
 export async function getColumns(): Promise<ColumnType[]> {
   const { data, error } = await supabase.from('columns').select('*').order('position', { ascending: true });
   if (error || !data) return [];
-  return (data as any[]).map((r) => ({ id: r.id, title: r.title, position: r.position }));
+  return (data as ColumnRow[]).map((r) => ({ id: r.id, title: r.title, position: r.position }));
 }
 
 export async function getCards(): Promise<CardType[]> {
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
+  const user: User | null = userRes?.data?.user ?? null;
   let query = supabase.from('cards').select('*').order('position', { ascending: true });
   if (user) query = query.eq('user_id', user.id);
   const { data, error } = await query;
   if (error || !data) return [];
-  return (data as any[]).map((r) => ({ id: r.id, title: r.title, description: r.description ?? '', columnId: r.column_id, position: r.position }));
+  return (data as CardRow[]).map((r) => ({ id: r.id, title: r.title, description: r.description ?? '', columnId: r.column_id, position: r.position }));
 }
 
 export async function upsertCards(cards: CardType[]) {
   // Map to DB shape
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
+  const user: User | null = userRes?.data?.user ?? null;
   const rows = cards.map((c) => {
-    const base: any = { id: c.id, title: c.title, description: c.description ?? '', column_id: c.columnId, position: c.position };
+    const base: { id: string; title: string; description: string; column_id: string; position: number; user_id?: string } = { id: c.id, title: c.title, description: c.description ?? '', column_id: c.columnId, position: c.position };
     if (user) base.user_id = user.id;
     return base;
   });
-  return supabase.from('cards').upsert(rows as any[]);
+  return supabase.from('cards').upsert(rows);
 }
 
 export async function upsertCard(card: CardType) {
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
-  const row: any = { id: card.id, title: card.title, description: card.description ?? '', column_id: card.columnId, position: card.position };
+  const user: User | null = userRes?.data?.user ?? null;
+  const row: { id: string; title: string; description: string; column_id: string; position: number; user_id?: string } = { id: card.id, title: card.title, description: card.description ?? '', column_id: card.columnId, position: card.position };
   if (user) row.user_id = user.id;
-  return supabase.from('cards').upsert(row as any).select();
+  return supabase.from('cards').upsert(row).select();
 }
 
 export async function deleteCard(id: string) {
   const userRes = await supabase.auth.getUser();
-  const user = userRes?.data?.user ?? null;
+  const user: User | null = userRes?.data?.user ?? null;
   let query = supabase.from('cards').delete().eq('id', id);
   if (user) query = query.eq('user_id', user.id);
   return query;
@@ -86,7 +88,7 @@ export async function getUser() {
   return res?.data?.user ?? null;
 }
 
-export function onAuthStateChange(cb: (event: string, session: any) => void) {
+export function onAuthStateChange(cb: (event: string, session: unknown) => void) {
   const { data } = supabase.auth.onAuthStateChange((event, session) => cb(event, session));
   return data.subscription;
 }
