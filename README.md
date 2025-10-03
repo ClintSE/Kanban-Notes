@@ -62,3 +62,21 @@ Optional tables for full persistence:
 - `cards` (id text PRIMARY KEY, title text, description text, column_id text, position int)
 
 Run the dev server with `npm run dev`. The UI currently uses in-memory sample cards; you can extend `src/components/Board.tsx` to fetch/persist cards and columns.
+
+## Supabase Auth (Google) setup
+
+To enable Sign in with Google in this app:
+
+1. In the Supabase dashboard, go to Authentication > Providers and enable Google. Add your OAuth Client ID and Client Secret.
+
+2. In the same settings, add the redirect URL (for local development):
+
+```
+http://localhost:3000
+```
+
+3. Ensure your `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set in `.env.local`.
+
+4. (Optional but recommended) Enable Row Level Security (RLS) and apply the example policies in `supabase/migrations/001_init_and_rls.sql` to scope settings and cards to the authenticated user. When RLS is enabled, make sure your policies allow the anon key to create users or sign in via OAuth.
+
+5. In the app header you'll see a "Sign in with Google" button after enabling the provider. Signing in will scope cards and settings to your user.
