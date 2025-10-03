@@ -94,7 +94,11 @@ export function onAuthStateChange(cb: (event: string, session: unknown) => void)
 }
 
 export function signInWithGoogle() {
-  return supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined } });
+  // Let Supabase handle the OAuth redirect callback. If you need a
+  // post-auth redirect, add your app URL to the Redirect URLs in
+  // the Supabase Authentication settings and then pass redirectTo from
+  // the client to match that value.
+  return supabase.auth.signInWithOAuth({ provider: 'google' });
 }
 
 export function signOut() {
