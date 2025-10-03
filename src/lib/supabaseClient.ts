@@ -54,7 +54,13 @@ export async function getCards(): Promise<CardType[]> {
 
 export async function upsertCards(cards: CardType[]) {
   // Map to DB shape
-  const rows = cards.map((c) => ({ id: c.id, title: c.title, description: c.description ?? '', column_id: c.columnId, position: c.position }));
+  const userRes = await supabase.auth.getUser();
+  const user = userRes?.data?.user ?? null;
+  const rows = cards.map((c) => {
+    const base: any = { id: c.id, title: c.title, description: c.description ?? '', column_id: c.columnId, position: c.position };
+    if (user) base.user_id = user.id;
+    return base;
+  });
   return supabase.from('cards').upsert(rows as any[]);
 }
 

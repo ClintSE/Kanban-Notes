@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { DragDropContext, Droppable, DropResult, DroppableProvided } from 'react-beautiful-dnd';
 import ColumnComponent from './Column';
 import type { Column, Card } from '../types';
-import { supabase, fetchBoard, upsertCards, upsertCard, deleteCard } from '../lib/supabaseClient';
+import { fetchBoard, upsertCards, upsertCard, deleteCard } from '../lib/supabaseClient';
 
 function generateId() {
   return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
