@@ -17,6 +17,17 @@ create table if not exists public.columns (
   created_at timestamptz default now()
 );
 
+-- Seed default columns (safe to run multiple times)
+INSERT INTO public.columns (id, title, position)
+VALUES
+  ('col-backlogs', 'Backlogs', 0),
+  ('col-todo', 'Todo', 1),
+  ('col-in-progress', 'In progress', 2),
+  ('col-in-qa', 'In QA', 3),
+  ('col-for-deployment', 'For deployment', 4),
+  ('col-done', 'Done', 5)
+ON CONFLICT (id) DO NOTHING;
+
 -- Cards table (user-scoped)
 create table if not exists public.cards (
   id text primary key,

@@ -11,9 +11,12 @@ function generateId() {
 }
 
 const initialColumns: Column[] = [
-  { id: 'col-1', title: 'To do', position: 0 },
-  { id: 'col-2', title: 'In progress', position: 1 },
-  { id: 'col-3', title: 'Done', position: 2 },
+  { id: 'col-backlogs', title: 'Backlogs', position: 0 },
+  { id: 'col-todo', title: 'Todo', position: 1 },
+  { id: 'col-in-progress', title: 'In progress', position: 2 },
+  { id: 'col-in-qa', title: 'In QA', position: 3 },
+  { id: 'col-for-deployment', title: 'For deployment', position: 4 },
+  { id: 'col-done', title: 'Done', position: 5 },
 ];
 
 const initialCards: Card[] = [
@@ -130,11 +133,11 @@ export default function Board(): React.ReactElement {
   }
 
   return (
-    <div className="flex gap-4 overflow-x-auto py-6">
+    <div className="w-screen h-screen overflow-x-auto py-6 pr-24 ">
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="board" direction="horizontal" type="COLUMN">
           {(provided: DroppableProvided) => (
-            <div className="flex" ref={provided.innerRef} {...provided.droppableProps}>
+            <div className="flex gap-4 min-w-max min-h-screen px-4" ref={provided.innerRef} {...provided.droppableProps}>
               {columns.map((col, i) => (
                 <ColumnComponent key={col.id} column={col} cards={cards.filter((c) => c.columnId === col.id).sort((a,b)=>a.position-b.position)} index={i} onAdd={addCard} onEdit={editCard} onDelete={removeCard} />
               ))}

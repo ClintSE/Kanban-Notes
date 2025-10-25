@@ -10,13 +10,13 @@ export default function Home() {
       <header className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Kanban Notes</h1>
         <div className="flex items-center gap-4">
-          <ThemeSwitcher />
+          {/* <ThemeSwitcher /> */}
           <Auth />
         </div>
       </header>
 
-      <main className="flex gap-6">
-        <Sidebar />
+      <main className="flex gap-6 overflow-x-hidden border-2 border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
+        {/* <Sidebar /> */}
         <div className="flex-1">
           <Board />
         </div>
