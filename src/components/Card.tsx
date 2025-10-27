@@ -79,13 +79,13 @@ export default function Card({
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
-                className="text-xs text-blue-600"
+                className="text-xs text-blue-600 dark:text-blue-400"
                 onClick={() => setEditing(true)}
               >
                 Edit
               </button>
               <button
-                className="text-xs text-red-600"
+                className="text-xs text-red-600 dark:text-red-400"
                 onClick={() => onDelete?.(card.id)}
               >
                 Delete
@@ -107,7 +107,7 @@ export default function Card({
           />
           <div className="flex gap-2 justify-end">
             <button
-              className="px-2 py-1 bg-gray-200 rounded"
+              className="px-2 py-1 bg-gray-200 rounded dark:text-gray-800 "
               onClick={() => setEditing(false)}
             >
               Cancel
