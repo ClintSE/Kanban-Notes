@@ -25,6 +25,8 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Make native buttons and button-like inputs show pointer cursor for better affordance */
 button,
 input[type="button"],

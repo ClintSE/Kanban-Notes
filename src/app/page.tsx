@@ -3,6 +3,7 @@ import Board from '../components/Board';
 import ThemeSwitcher from '../components/ThemeSwitcher';
 import Auth from '../components/Auth';
 import Sidebar from '../components/Sidebar';
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function Home() {
   return (
@@ -11,7 +12,9 @@ export default function Home() {
         <h1 className="text-2xl font-bold">Kanban Notes</h1>
         <div className="flex items-center gap-4">
           {/* <ThemeSwitcher /> */}
+          
           <Auth />
+          <ThemeToggle />
         </div>
       </header>
 

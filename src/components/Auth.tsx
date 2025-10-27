@@ -20,7 +20,7 @@ export default function Auth(): React.ReactElement {
   if (!user) {
     return (
       <div>
-        <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => signInWithGoogle()}>Sign in with Google</button>
+        <button className="px-3 py-1 bg-blue-600 text-white rounded-md h-10" onClick={() => signInWithGoogle()}>Sign in with Google</button>
       </div>
     );
   }
@@ -28,7 +28,7 @@ export default function Auth(): React.ReactElement {
   return (
     <div className="flex items-center gap-3">
       <div className="text-sm">{user.email}</div>
-      <button className="px-2 py-1 bg-gray-800 rounded text-white" onClick={() => signOut().then(() => window.dispatchEvent(new CustomEvent('kanban:refresh')))}>Sign out</button>
+      <button className="px-2 py-1 bg-gray-800 rounded-md text-white h-10" onClick={() => signOut().then(() => window.dispatchEvent(new CustomEvent('kanban:refresh')))}>Sign out</button>
     </div>
   );
 }
