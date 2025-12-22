@@ -9,25 +9,48 @@ type Card = {
   assignee?: string;
   priority?: string;
   comments?: string;
+  dueDate?: string;
+  processLink?: string;
+  bugherdLink?: string;
 };
+
+type Member = { name: string; email: string };
 
 export default function KanbanBoard(): React.ReactElement {
   const [state, setState] = useState<Record<string, Card[]>>(() => {
     try {
-      return JSON.parse(localStorage.getItem('kanban') || '{}') || {};
+      const raw = JSON.parse(localStorage.getItem('kanban') || 'null');
+      if (!raw) return {};
+      // support legacy shape (columns object) or new shape { columns, userOrder }
+      if (raw.columns) return raw.columns || {};
+      return raw || {};
+    } catch {
+      return {};
+    }
+  });
+  const [userOrder, setUserOrder] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('kanban') || 'null');
+      if (!raw) return {};
+      if (raw.userOrder) return raw.userOrder || {};
+      return {};
     } catch {
       return {};
     }
   });
   const [currentGroup, setCurrentGroup] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [currentMembers, setCurrentMembers] = useState<Member[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [currentColumn, setCurrentColumn] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ col: string; idx: number } | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
-  const assigneeRef = useRef<HTMLInputElement | null>(null);
+  const assigneeRef = useRef<HTMLSelectElement | HTMLInputElement | null>(null);
   const priorityRef = useRef<HTMLSelectElement | null>(null);
   const commentsRef = useRef<HTMLTextAreaElement | null>(null);
+  const dueDateRef = useRef<HTMLInputElement | null>(null);
+  const processLinkRef = useRef<HTMLInputElement | null>(null);
+  const bugherdRef = useRef<HTMLInputElement | null>(null);
   const dragged = useRef<{ col: string; idx: number } | null>(null);
 
   useEffect(() => {
@@ -39,7 +62,7 @@ export default function KanbanBoard(): React.ReactElement {
         if (!copy[c]) { copy[c] = []; changed = true; }
       });
       if (changed) {
-        try { localStorage.setItem('kanban', JSON.stringify(copy)); } catch {}
+        try { localStorage.setItem('kanban', JSON.stringify({ columns: copy, userOrder })); } catch {}
         return copy;
       }
       return s;
@@ -49,17 +72,27 @@ export default function KanbanBoard(): React.ReactElement {
       const group = e?.detail;
       if (!group || !group.name) return;
       setCurrentGroup(group.name);
+      setCurrentMembers(group.members || []);
       // load group-specific board
       try {
         const key = `kanban-board:${group.name}`;
         const data = JSON.parse(localStorage.getItem(key) || 'null');
-        if (data) setState(data);
-        else {
+        if (data) {
+          // support new wrapper shape { columns, userOrder }
+          if (data.columns) {
+            setState(data.columns || {});
+            setUserOrder(data.userOrder || {});
+          } else {
+            setState(data);
+            setUserOrder({});
+          }
+        } else {
           // initialize default empty board for group
           const init: Record<string, Card[]> = {};
           COLUMNS.forEach(c => init[c] = []);
           setState(init);
-          localStorage.setItem(key, JSON.stringify(init));
+          setUserOrder({});
+          localStorage.setItem(key, JSON.stringify({ columns: init, userOrder: {} }));
         }
       } catch {
         // ignore
@@ -83,9 +116,9 @@ export default function KanbanBoard(): React.ReactElement {
     setState(next);
     try {
       if (currentGroup) {
-        localStorage.setItem(`kanban-board:${currentGroup}`, JSON.stringify(next));
+        localStorage.setItem(`kanban-board:${currentGroup}`, JSON.stringify({ columns: next, userOrder }));
       } else {
-        localStorage.setItem('kanban', JSON.stringify(next));
+        localStorage.setItem('kanban', JSON.stringify({ columns: next, userOrder }));
       }
     } catch {}
   }
@@ -101,6 +134,22 @@ export default function KanbanBoard(): React.ReactElement {
     const item = next[src.col].splice(src.idx, 1)[0];
     next[targetCol].push(item);
     dragged.current = null;
+    // mark both columns as user-ordered when a drag occurs
+    setUserOrder((u) => ({ ...u, [src.col]: true, [targetCol]: true }));
+    saveState(next);
+  }
+
+  function onDropAt(targetCol: string, targetIdx: number) {
+    if (!dragged.current) return;
+    const src = dragged.current;
+    const next = { ...state };
+    const item = next[src.col].splice(src.idx, 1)[0];
+    // if moving within same column and the source index is before target index, adjust insertion idx
+    let insertIdx = targetIdx;
+    if (src.col === targetCol && src.idx < targetIdx) insertIdx = targetIdx - 1;
+    next[targetCol].splice(insertIdx, 0, item);
+    dragged.current = null;
+    setUserOrder((u) => ({ ...u, [src.col]: true, [targetCol]: true }));
     saveState(next);
   }
 
@@ -118,15 +167,22 @@ export default function KanbanBoard(): React.ReactElement {
     if (assigneeRef.current) assigneeRef.current.value = '';
     if (priorityRef.current) priorityRef.current.value = 'low';
     if (commentsRef.current) commentsRef.current.value = '';
+    if (dueDateRef.current) dueDateRef.current.value = '';
+    if (processLinkRef.current) processLinkRef.current.value = '';
+    if (bugherdRef.current) bugherdRef.current.value = '';
   }
 
   function saveCard() {
     const data: Card = {
       title: titleRef.current?.value || '',
-      assignee: assigneeRef.current?.value || '',
+      assignee: (assigneeRef.current as HTMLInputElement | HTMLSelectElement | null)?.value || '',
       priority: priorityRef.current?.value || 'low',
       comments: commentsRef.current?.value || ''
     };
+    // include additional fields
+    (data as any).dueDate = dueDateRef.current?.value || '';
+    (data as any).processLink = processLinkRef.current?.value || '';
+    (data as any).bugherdLink = bugherdRef.current?.value || '';
     const next = { ...state };
     if (editing) {
       next[editing.col][editing.idx] = data;
@@ -141,6 +197,17 @@ export default function KanbanBoard(): React.ReactElement {
     const next = { ...state };
     next[col].splice(idx, 1);
     saveState(next);
+  }
+
+  function confirmDelete(col: string, idx: number) {
+    try {
+      const answer = window.prompt("Type 'delete' to confirm deleting this task:");
+      if (!answer) return;
+      if (answer.toLowerCase() !== 'delete') return;
+      deleteCard(col, idx);
+    } catch {
+      // ignore
+    }
   }
 
   return (
@@ -166,20 +233,48 @@ export default function KanbanBoard(): React.ReactElement {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => onDrop(col)}
               >
-                {(state[col] || []).map((c, i) => {
+
+                {(function(){
+                  const list = state[col] || [];
+                  // entries with original index
+                  const entries = list.map((card, idx) => ({ card, idx }));
+                  if (!userOrder[col]) {
+                    const today = new Date();
+                    const priorityRank = (p?: string) => p === 'high' ? 3 : p === 'medium' ? 2 : 1;
+                    entries.sort((ea, eb) => {
+                      const a = ea.card, b = eb.card;
+                      const pa = priorityRank(a.priority), pb = priorityRank(b.priority);
+                      if (pa !== pb) return pb - pa; // higher priority first
+                      const aDue = a.dueDate ? new Date(a.dueDate) : new Date(8640000000000000);
+                      const bDue = b.dueDate ? new Date(b.dueDate) : new Date(8640000000000000);
+                      const aOver = a.dueDate ? (new Date(a.dueDate) < today ? 0 : 1) : 1;
+                      const bOver = b.dueDate ? (new Date(b.dueDate) < today ? 0 : 1) : 1;
+                      if (aOver !== bOver) return aOver - bOver; // overdue (0) first
+                      return aDue.getTime() - bDue.getTime();
+                    });
+                  }
+                  return entries.map(({card, idx}) => ({ c: card, originalIdx: idx }));
+                })().map(({c, originalIdx}) => {
                   const priorityClass = c.priority === 'high' ? 'border-red-500' : c.priority === 'medium' ? 'border-amber-400' : 'border-emerald-400';
                   return (
                     <div
-                      key={i}
-                      className={`bg-white dark:bg-gray-900 rounded p-3 mb-2 cursor-grab border-l-4 ${priorityClass}`}
+                      key={originalIdx}
+                      className={`bg-white dark:bg-gray-900 rounded p-4  mb-2 cursor-grab border-l-4 ${priorityClass}`}
                       draggable
-                      onDragStart={() => onDragStart(col, i)}
+                      onDragStart={() => onDragStart(col, originalIdx)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => onDropAt(col, originalIdx)}
                     >
                       <div className="font-semibold text-sm mb-1">{c.title}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{c.assignee || 'Unassigned'}</div>
-                      <div className="mt-2 flex gap-2">
-                        <button className="text-sm px-2 py-1 rounded bg-gray-100 dark:bg-gray-800" onClick={() => openModal(col, i)}>Edit</button>
-                        <button className="text-sm px-2 py-1 rounded bg-red-600 text-white" onClick={() => deleteCard(col, i)}>Delete</button>
+                      {c.comments && <div className="text-xs text-gray-500 dark:text--400 my-3">{c.comments}</div>}
+                      <div className="text-xs text-blue-500 dark:text-slate-400 mb-2">{(currentMembers.find(m=>m.email===c.assignee)?.name) || c.assignee || 'Unassigned'}</div>
+                      {c.dueDate ? <div className="text-xs text-amber-600 dark:text-amber-400">Due: {c.dueDate}</div> : null}
+                      {c.processLink ? <div className="text-xs"><a className="text-indigo-600 dark:text-indigo-400 underline" href={c.processLink} target="_blank" rel="noreferrer">Process Link</a></div> : null}
+                      {c.bugherdLink ? <div className="text-xs"><a className="text-indigo-600 dark:text-indigo-400 underline" href={c.bugherdLink} target="_blank" rel="noreferrer">BugHerd</a></div> : null}
+                     
+                      <div className="mt-2 flex gap-2 mt-6">
+                        <button className="text-sm px-2 py-1 rounded bg-gray-100 dark:bg-gray-800" onClick={() => openModal(col, originalIdx)}>Edit</button>
+                        <button className="text-sm px-2 py-1 rounded bg-red-600 text-white" onClick={() => confirmDelete(col, originalIdx)}>Delete</button>
                       </div>
                     </div>
                   );
@@ -197,7 +292,19 @@ export default function KanbanBoard(): React.ReactElement {
           <div className="bg-white dark:bg-gray-900 w-96 rounded p-4">
             <h3 className="text-lg font-semibold mb-2">Task</h3>
             <input ref={titleRef} placeholder="Title" defaultValue={editing ? state[editing.col][editing.idx].title : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
-            <input ref={assigneeRef} placeholder="Assignee" defaultValue={editing ? state[editing.col][editing.idx].assignee : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
+            {currentMembers.length ? (
+              <select ref={assigneeRef as any} defaultValue={editing ? state[editing.col][editing.idx].assignee : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm">
+                <option value="">Unassigned</option>
+                {currentMembers.map((m) => (
+                  <option key={m.email} value={m.email}>{m.name} — {m.email}</option>
+                ))}
+              </select>
+            ) : (
+              <input ref={assigneeRef as any} placeholder="Assignee" defaultValue={editing ? state[editing.col][editing.idx].assignee : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
+            )}
+            <input ref={dueDateRef} type="date" defaultValue={editing ? state[editing.col][editing.idx].dueDate || '' : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
+            <input ref={processLinkRef} placeholder="Process link (https://...)" defaultValue={editing ? state[editing.col][editing.idx].processLink || '' : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
+            <input ref={bugherdRef} placeholder="BugHerd link (https://...)" defaultValue={editing ? state[editing.col][editing.idx].bugherdLink || '' : ''} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm" />
             <select ref={priorityRef} defaultValue={editing ? state[editing.col][editing.idx].priority : 'low'} className="w-full mb-2 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-800 text-sm">
               <option value="low">Low</option>
               <option value="medium">Medium</option>
