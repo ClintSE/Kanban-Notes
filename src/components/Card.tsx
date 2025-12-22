@@ -65,7 +65,7 @@ export default function Card({
   }
 
   return (
-    <div className="w-full max-w-full bg-white dark:bg-gray-800 rounded-md p-3 shadow-sm border border-gray-200 dark:border-gray-700">
+    <div className="w-full max-w-full bg-white dark:bg-gray-800 rounded-md p-3 shadow-sm border border-gray-200 dark:border-gray-700 ">
       {!editing ? (
         <>
           <div className="flex justify-between items-start gap-2">

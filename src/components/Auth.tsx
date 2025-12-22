@@ -12,7 +12,7 @@ export default function Auth(): React.ReactElement {
     getUser().then(u => { if (mounted) setUser(u); });
     const sub = onAuthStateChange((_event, _session) => {
       // refresh user and app state on auth changes
-      getUser().then(u => { setUser(u); window.dispatchEvent(new CustomEvent('kanban:refresh')); });
+      getUser().then(u => { setUser(u); window.dispatchEvent(new CustomEvent('kanban:refresh')); window.dispatchEvent(new CustomEvent('kanban:user',{detail: u})); });
     });
     return () => { mounted = false; sub?.unsubscribe?.(); };
   }, []);
@@ -28,7 +28,7 @@ export default function Auth(): React.ReactElement {
   return (
     <div className="flex items-center gap-3">
       <div className="text-sm">{user.email}</div>
-      <button className="px-2 py-1 bg-gray-800 rounded-md text-white h-10" onClick={() => signOut().then(() => window.dispatchEvent(new CustomEvent('kanban:refresh')))}>Sign out</button>
+      <button className="px-2 py-1 bg-gray-800 rounded-md text-white h-10" onClick={() => signOut().then(() => { window.dispatchEvent(new CustomEvent('kanban:refresh')); window.dispatchEvent(new CustomEvent('kanban:user',{detail: null})); })}>Sign out</button>
     </div>
   );
 }
