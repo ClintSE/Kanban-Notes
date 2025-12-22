@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { fetchBoard, upsertCard } from '../lib/supabaseClient';
+import { fetchBoard, upsertCard, getGroups, getMembersForGroup, addMemberToGroup, upsertMember, removeMemberFromGroup, createGroup } from '../lib/supabaseClient';
 import type { Column, Card } from '../types';
 
 function generateId() {
@@ -12,16 +12,11 @@ export default function Sidebar(): React.ReactElement {
   const [columns, setColumns] = useState<Column[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
 
-  type Member = { name: string; email: string };
+  type Member = { id?: string; name: string; email: string };
   type Group = { id: string; name: string; members: Member[] };
 
-  const [groups, setGroups] = useState<Group[]>(() => {
-    try { return JSON.parse(localStorage.getItem('kanban-groups') || 'null') || [
-      { id: 'web-builds', name: 'Web Builds Tracker', members: [{ name: 'Clinton Taypoc', email: 'clinton.taypoc@mrisoftware.com' }] },
-      { id: 'ps-media', name: 'PS Media Tracker', members: [] }
-    ]; } catch { return []; }
-  });
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(() => { return groups[0]?.id ?? null; });
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -47,15 +42,32 @@ export default function Sidebar(): React.ReactElement {
 
   useEffect(() => {
     load();
+    // fetch groups from Supabase
+    (async function loadGroups(){
+      try {
+        const g = await getGroups();
+        if (g && g.length) {
+          const mapped = g.map((row:any) => ({ id: row.id, name: row.name, members: [] }));
+          setGroups(mapped);
+          setSelectedGroupId(mapped[0].id);
+          // load members for the first group
+          try {
+            const members = await getMembersForGroup(mapped[0].id);
+            const mappedMembers = (members||[]).map((m:any) => ({ id: m.id, name: m.name || m.full_name || m.email, email: m.email }));
+            const next = mapped.map((gr:any, i:number) => i===0 ? { ...gr, members: mappedMembers } : gr);
+            setGroups(next);
+            window.dispatchEvent(new CustomEvent('kanban:load-group', { detail: { name: next[0].name, id: next[0].id, members: mappedMembers } }));
+          } catch {}
+        }
+      } catch {
+        // ignore
+      }
+    })();
     function onRefresh() { load(); }
     window.addEventListener('kanban:refresh', onRefresh as EventListener);
     function onUser(_e: any) { /* noop - keep sidebar intact */ }
     window.addEventListener('kanban:user', onUser as EventListener);
-    // initialize selected group load
-    if (selectedGroupId) {
-      const g = groups.find(x => x.id === selectedGroupId);
-      if (g) window.dispatchEvent(new CustomEvent('kanban:load-group', { detail: g }));
-    }
+    // initialize selected group load handled after fetching groups
 
     return () => {
       window.removeEventListener('kanban:refresh', onRefresh as EventListener);
@@ -91,25 +103,47 @@ export default function Sidebar(): React.ReactElement {
   function selectGroup(id: string) {
     setSelectedGroupId(id);
     const g = groups.find(x => x.id === id);
-    window.dispatchEvent(new CustomEvent('kanban:load-group', { detail: g }));
+    (async function(){
+      try {
+        const members = await getMembersForGroup(id);
+        const mappedMembers = (members||[]).map((m:any) => ({ name: m.name || m.full_name || m.email, email: m.email }));
+        // update local groups with members for UI
+        setGroups(prev => prev.map(gr => gr.id===id ? { ...gr, members: mappedMembers } : gr));
+        window.dispatchEvent(new CustomEvent('kanban:load-group', { detail: { ...g, members: mappedMembers } }));
+      } catch {
+        window.dispatchEvent(new CustomEvent('kanban:load-group', { detail: g }));
+      }
+    })();
   }
 
   function addGroup() {
     const name = newGroupName.trim();
     if (!name) return;
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const next = [...groups, { id, name, members: [] }];
-    persistGroups(next);
-    setNewGroupName('');
-    selectGroup(id);
+    (async () => {
+      try {
+        const g = await createGroup({ name });
+        const next = [...groups, { id: g.id, name: g.name, members: [] }];
+        setGroups(next);
+        setNewGroupName('');
+        selectGroup(g.id);
+      } catch (err) {
+        console.error('createGroup failed', err);
+      }
+    })();
   }
 
   function addMember() {
     if (!selectedGroupId) return;
     if (!newMemberName.trim() || !newMemberEmail.trim()) return;
-    const next = groups.map(g => g.id === selectedGroupId ? { ...g, members: [...g.members, { name: newMemberName.trim(), email: newMemberEmail.trim() }] } : g);
-    persistGroups(next);
-    setNewMemberName(''); setNewMemberEmail('');
+    (async () => {
+      try {
+        const m = await addMemberToGroup(selectedGroupId, { name: newMemberName.trim(), email: newMemberEmail.trim() });
+        setGroups(prev => prev.map(g => g.id === selectedGroupId ? { ...g, members: [...g.members, { id: m.id, name: m.name, email: m.email }] } : g));
+        setNewMemberName(''); setNewMemberEmail('');
+      } catch (err) {
+        console.error('addMemberToGroup failed', err);
+      }
+    })();
   }
 
   return (
@@ -169,17 +203,25 @@ export default function Sidebar(): React.ReactElement {
                       <input value={editMemberName} onChange={(e)=>setEditMemberName(e.target.value)} className="w-full p-1 rounded border text-sm bg-white dark:bg-gray-800" />
                       <input value={editMemberEmail} onChange={(e)=>setEditMemberEmail(e.target.value)} className="w-full p-1 rounded border text-sm bg-white dark:bg-gray-800" />
                       <div className="flex gap-2 justify-end mt-1">
-                        <button onClick={() => { setEditingMemberIndex(null); }} className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-sm">Cancel</button>
-                        <button onClick={() => {
-                          if (!selectedGroupId) return;
-                          const next = groups.map(g => {
-                            if (g.id !== selectedGroupId) return g;
-                            const members = g.members.map((mm, i) => i === idx ? { name: editMemberName.trim() || mm.name, email: editMemberEmail.trim() || mm.email } : mm);
-                            return { ...g, members };
-                          });
-                          persistGroups(next);
-                          setEditingMemberIndex(null);
-                        }} className="px-2 py-1 rounded bg-indigo-600 text-white text-sm">Save</button>
+                            <button onClick={() => { setEditingMemberIndex(null); }} className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-sm">Cancel</button>
+                            <button onClick={async () => {
+                              if (!selectedGroupId) return;
+                              try {
+                                const g = groups.find(x => x.id === selectedGroupId);
+                                if (!g) return;
+                                const member = g.members[idx];
+                                if (!member) return;
+                                // upsert member server-side
+                                const updated = await upsertMember({ id: (member as any)?.id, name: editMemberName.trim() || member.name, email: editMemberEmail.trim() || member.email });
+                                // refresh group members
+                                const members = await getMembersForGroup(selectedGroupId);
+                                const mappedMembers = (members||[]).map((m:any) => ({ id: m.id, name: m.name || m.full_name || m.email, email: m.email }));
+                                setGroups(prev => prev.map(gr => gr.id === selectedGroupId ? { ...gr, members: mappedMembers } : gr));
+                                setEditingMemberIndex(null);
+                              } catch (err) {
+                                console.error('upsertMember failed', err);
+                              }
+                            }} className="px-2 py-1 rounded bg-indigo-600 text-white text-sm">Save</button>
                       </div>
                     </div>
                   ) : (
@@ -196,11 +238,17 @@ export default function Sidebar(): React.ReactElement {
                         }} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700" title="Edit member">
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-600 dark:text-slate-300" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"/></svg>
                         </button>
-                        <button onClick={() => {
+                        <button onClick={async () => {
                           if (!confirm(`Remove member ${m.name}?`)) return;
                           if (!selectedGroupId) return;
-                          const next = groups.map(g => g.id === selectedGroupId ? { ...g, members: g.members.filter((_,i)=>i!==idx) } : g);
-                          persistGroups(next);
+                          try {
+                            if ((m as any).id) {
+                              await removeMemberFromGroup(selectedGroupId, (m as any).id);
+                            }
+                            setGroups(prev => prev.map(g => g.id === selectedGroupId ? { ...g, members: g.members.filter((_,i)=>i!==idx) } : g));
+                          } catch (err) {
+                            console.error('removeMemberFromGroup failed', err);
+                          }
                         }} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700" title="Remove member">
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-600" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H3.5a.5.5 0 000 1H4v9a2 2 0 002 2h8a2 2 0 002-2V5h.5a.5.5 0 000-1H15V3a1 1 0 00-1-1H6zm2 5a.5.5 0 011 0v7a.5.5 0 01-1 0V7zm4 0a.5.5 0 011 0v7a.5.5 0 01-1 0V7z" clipRule="evenodd"/></svg>
                         </button>

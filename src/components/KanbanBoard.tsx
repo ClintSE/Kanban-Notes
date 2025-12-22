@@ -1,20 +1,29 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
+import { getColumns, fetchBoard, upsertCard, upsertCards, deleteCard } from '../lib/supabaseClient';
 
-const COLUMNS = ["All Tasks", "In Progress", "Review","Deployment", "Done"];
+const DEFAULT_COLUMNS = ["All Tasks", "In Progress", "Review","Deployment", "Done"];
 
 type Card = {
+  id?: string;
   title: string;
-  assignee?: string;
+  assignee?: string; // email fallback for display
+  assigneeId?: string | null;
   priority?: string;
   comments?: string;
   dueDate?: string;
   processLink?: string;
   bugherdLink?: string;
+  position?: number; // mapped from order_index
+  columnId?: string | null;
 };
 
-type Member = { name: string; email: string };
+type Member = { id?: string; name: string; email: string };
+
+function generateId() {
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+}
 
 export default function KanbanBoard(): React.ReactElement {
   const [state, setState] = useState<Record<string, Card[]>>(() => {
@@ -39,6 +48,7 @@ export default function KanbanBoard(): React.ReactElement {
     }
   });
   const [currentGroup, setCurrentGroup] = useState<string | null>(null);
+  const [columns, setColumns] = useState<string[]>(DEFAULT_COLUMNS);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [currentMembers, setCurrentMembers] = useState<Member[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -53,50 +63,58 @@ export default function KanbanBoard(): React.ReactElement {
   const bugherdRef = useRef<HTMLInputElement | null>(null);
   const dragged = useRef<{ col: string; idx: number } | null>(null);
 
+  // keep a mapping between column id and title to map server cards into UI buckets
+  const colIdToTitle = useRef<Record<string,string>>({});
+
   useEffect(() => {
-    // Ensure all columns exist for current standalone board key
-    setState((s) => {
-      const copy = { ...s };
-      let changed = false;
-      COLUMNS.forEach((c) => {
-        if (!copy[c]) { copy[c] = []; changed = true; }
-      });
-      if (changed) {
-        try { localStorage.setItem('kanban', JSON.stringify({ columns: copy, userOrder })); } catch {}
-        return copy;
+    async function loadFromServer() {
+      try {
+        const board = await fetchBoard();
+        const cols = board.columns || [];
+        const cards = board.cards || [];
+        // populate column mappings
+        const titles = cols.map((c:any) => c.title);
+        const idToTitle: Record<string,string> = {};
+        cols.forEach((c:any) => { idToTitle[c.id] = c.title; });
+        colIdToTitle.current = idToTitle;
+        setColumns(titles.length ? titles : DEFAULT_COLUMNS);
+
+        // build state mapping title -> card[]
+        const nextState: Record<string, Card[]> = {};
+        const allTitles = (titles.length ? titles : DEFAULT_COLUMNS);
+        allTitles.forEach(t => nextState[t] = []);
+        cards.forEach((r:any) => {
+          const colTitle = idToTitle[r.column_id] || allTitles[0];
+          const uiCard: any = {
+            id: r.id,
+            title: r.title,
+            comments: r.description || '',
+            assignee: r.assignee_email || '',
+            assigneeId: (r as any).assignee_id || null,
+            priority: (r as any).priority || 'low',
+            dueDate: (r as any).due_date || '',
+            processLink: (r as any).process_link || '',
+            bugherdLink: (r as any).bugherd_link || '',
+            position: (r as any).order_index ?? 0,
+            columnId: r.column_id
+          };
+          if (!nextState[colTitle]) nextState[colTitle] = [];
+          nextState[colTitle].push(uiCard);
+        });
+        setState(nextState);
+        setUserOrder({});
+      } catch (err) {
+        // keep previous client state if server fetch fails
+        console.error('fetchBoard failed', err);
       }
-      return s;
-    });
+    }
 
     function onLoadGroup(e: any) {
       const group = e?.detail;
       if (!group || !group.name) return;
       setCurrentGroup(group.name);
       setCurrentMembers(group.members || []);
-      // load group-specific board
-      try {
-        const key = `kanban-board:${group.name}`;
-        const data = JSON.parse(localStorage.getItem(key) || 'null');
-        if (data) {
-          // support new wrapper shape { columns, userOrder }
-          if (data.columns) {
-            setState(data.columns || {});
-            setUserOrder(data.userOrder || {});
-          } else {
-            setState(data);
-            setUserOrder({});
-          }
-        } else {
-          // initialize default empty board for group
-          const init: Record<string, Card[]> = {};
-          COLUMNS.forEach(c => init[c] = []);
-          setState(init);
-          setUserOrder({});
-          localStorage.setItem(key, JSON.stringify({ columns: init, userOrder: {} }));
-        }
-      } catch {
-        // ignore
-      }
+      loadFromServer();
     }
 
     function onUser(e: any) {
@@ -106,6 +124,11 @@ export default function KanbanBoard(): React.ReactElement {
 
     window.addEventListener('kanban:load-group', onLoadGroup as EventListener);
     window.addEventListener('kanban:user', onUser as EventListener);
+    // initial load
+    (async () => {
+      try { const cols = await getColumns(); if (cols && cols.length) setColumns(cols.map(c=>c.title)); } catch {}
+    })();
+
     return () => {
       window.removeEventListener('kanban:load-group', onLoadGroup as EventListener);
       window.removeEventListener('kanban:user', onUser as EventListener);
@@ -127,7 +150,7 @@ export default function KanbanBoard(): React.ReactElement {
     dragged.current = { col, idx };
   }
 
-  function onDrop(targetCol: string) {
+  async function onDrop(targetCol: string) {
     if (!dragged.current) return;
     const src = dragged.current;
     const next = { ...state };
@@ -137,9 +160,10 @@ export default function KanbanBoard(): React.ReactElement {
     // mark both columns as user-ordered when a drag occurs
     setUserOrder((u) => ({ ...u, [src.col]: true, [targetCol]: true }));
     saveState(next);
+    await persistOrder(next);
   }
 
-  function onDropAt(targetCol: string, targetIdx: number) {
+  async function onDropAt(targetCol: string, targetIdx: number) {
     if (!dragged.current) return;
     const src = dragged.current;
     const next = { ...state };
@@ -151,6 +175,7 @@ export default function KanbanBoard(): React.ReactElement {
     dragged.current = null;
     setUserOrder((u) => ({ ...u, [src.col]: true, [targetCol]: true }));
     saveState(next);
+    await persistOrder(next);
   }
 
   function openModal(col: string, idx?: number) {
@@ -172,31 +197,168 @@ export default function KanbanBoard(): React.ReactElement {
     if (bugherdRef.current) bugherdRef.current.value = '';
   }
 
-  function saveCard() {
-    const data: Card = {
+  async function saveCard() {
+    const data: any = {
       title: titleRef.current?.value || '',
       assignee: (assigneeRef.current as HTMLInputElement | HTMLSelectElement | null)?.value || '',
       priority: priorityRef.current?.value || 'low',
       comments: commentsRef.current?.value || ''
     };
     // include additional fields
-    (data as any).dueDate = dueDateRef.current?.value || '';
-    (data as any).processLink = processLinkRef.current?.value || '';
-    (data as any).bugherdLink = bugherdRef.current?.value || '';
+    data.dueDate = dueDateRef.current?.value || '';
+    data.processLink = processLinkRef.current?.value || '';
+    data.bugherdLink = bugherdRef.current?.value || '';
+
     const next = { ...state };
-    if (editing) {
-      next[editing.col][editing.idx] = data;
-    } else if (currentColumn) {
-      next[currentColumn] = [...(next[currentColumn] || []), data];
+    // determine DB column id for the current column title
+    const getColumnId = (title: string) => {
+      const map = colIdToTitle.current;
+      const entry = Object.entries(map).find(([id, t]) => t === title);
+      return entry ? entry[0] : undefined;
+    };
+
+    try {
+      if (editing) {
+        // update existing
+        const existing = next[editing.col][editing.idx] as any;
+        // resolve assignee id if available from currentMembers
+        const assigneeId = currentMembers.find(m => m.email === data.assignee)?.id || existing?.assigneeId || null;
+        const assigneeEmail = data.assignee || existing?.assignee || '';
+        const row: any = {
+          id: existing?.id,
+          title: data.title,
+          description: data.comments || '',
+          column_id: getColumnId(editing.col) || existing?.columnId || null,
+          order_index: existing?.position ?? editing.idx,
+          priority: data.priority || 'low',
+          assignee_id: assigneeId,
+          assignee_email: assigneeEmail,
+          due_date: data.dueDate || '',
+          process_link: data.processLink || '',
+          bugherd_link: data.bugherdLink || ''
+        };
+        await upsertCard(row);
+      } else if (currentColumn) {
+        const colId = getColumnId(currentColumn) || null;
+        const pos = (next[currentColumn] || []).length;
+        const assigneeId = currentMembers.find(m => m.email === data.assignee)?.id || null;
+        const row: any = {
+          id: generateId(),
+          title: data.title,
+          description: data.comments || '',
+          column_id: colId,
+          order_index: pos,
+          priority: data.priority || 'low',
+          assignee_id: assigneeId,
+          assignee_email: data.assignee || '',
+          due_date: data.dueDate || '',
+          process_link: data.processLink || '',
+          bugherd_link: data.bugherdLink || ''
+        };
+        await upsertCard(row);
+      }
+      // refresh from server
+      const board = await fetchBoard();
+      // rebuild UI state similar to initial load
+      const cols = board.columns || [];
+      const cards = board.cards || [];
+      const titles = cols.map((c:any) => c.title);
+      const idToTitle: Record<string,string> = {};
+      cols.forEach((c:any) => { idToTitle[c.id] = c.title; });
+      colIdToTitle.current = idToTitle;
+      const nextState: Record<string, Card[]> = {};
+      const allTitles = (titles.length ? titles : DEFAULT_COLUMNS);
+      allTitles.forEach(t => nextState[t] = []);
+      cards.forEach((r:any) => {
+        const colTitle = idToTitle[r.column_id] || allTitles[0];
+        const uiCard: any = {
+          id: r.id,
+          title: r.title,
+          comments: r.description || '',
+          assignee: r.assignee_email || '',
+          assigneeId: (r as any).assignee_id || null,
+          priority: (r as any).priority || 'low',
+          dueDate: (r as any).due_date || '',
+          processLink: (r as any).process_link || '',
+          bugherdLink: (r as any).bugherd_link || '',
+          position: (r as any).order_index ?? 0,
+          columnId: r.column_id
+        };
+        if (!nextState[colTitle]) nextState[colTitle] = [];
+        nextState[colTitle].push(uiCard);
+      });
+      setState(nextState);
+      setUserOrder({});
+    } catch (err) {
+      console.error('saveCard failed', err);
     }
-    saveState(next);
+
     closeModal();
   }
 
-  function deleteCard(col: string, idx: number) {
+  async function removeCardLocal(col: string, idx: number) {
     const next = { ...state };
+    const item: any = next[col][idx];
+    if (item && item.id) {
+      try {
+        await deleteCard(item.id);
+      } catch (err) {
+        console.error('deleteCard failed', err);
+      }
+    }
     next[col].splice(idx, 1);
     saveState(next);
+    // refresh server state
+    try {
+      const board = await fetchBoard();
+      const cols = board.columns || [];
+      const cards = board.cards || [];
+      const titles = cols.map((c:any) => c.title);
+      const idToTitle: Record<string,string> = {};
+      cols.forEach((c:any) => { idToTitle[c.id] = c.title; });
+      colIdToTitle.current = idToTitle;
+      const nextState: Record<string, Card[]> = {};
+      const allTitles = (titles.length ? titles : DEFAULT_COLUMNS);
+      allTitles.forEach(t => nextState[t] = []);
+      cards.forEach((r:any) => {
+        const colTitle = idToTitle[r.column_id] || allTitles[0];
+        const uiCard: any = {
+          id: r.id,
+          title: r.title,
+          comments: r.description || '',
+          assignee: r.assignee_email || '',
+          assigneeId: (r as any).assignee_id || null,
+          priority: (r as any).priority || 'low',
+          dueDate: (r as any).due_date || '',
+          processLink: (r as any).process_link || '',
+          bugherdLink: (r as any).bugherd_link || '',
+          position: (r as any).order_index ?? 0,
+          columnId: r.column_id
+        };
+        if (!nextState[colTitle]) nextState[colTitle] = [];
+        nextState[colTitle].push(uiCard);
+      });
+      setState(nextState);
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  async function persistOrder(nextState: Record<string, Card[]>) {
+    try {
+      const rows: any[] = [];
+      Object.keys(nextState).forEach((title) => {
+        const colIdEntry = Object.entries(colIdToTitle.current).find(([id, t]) => t === title);
+        const colId = colIdEntry ? colIdEntry[0] : null;
+        nextState[title].forEach((c:any, idx:number) => {
+            const memberId = currentMembers.find(m => m.email === c.assignee)?.id || (c.assigneeId || null);
+            rows.push({ id: c.id || generateId(), title: c.title, description: c.comments || '', column_id: colId, order_index: idx, priority: c.priority || 'low', assignee_id: memberId, assignee_email: c.assignee || '', due_date: c.dueDate || '', process_link: c.processLink || '', bugherd_link: c.bugherdLink || '' });
+          });
+      });
+      if (rows.length) await upsertCards(rows as any);
+    } catch (err) {
+      console.error('persistOrder failed', err);
+    }
   }
 
   function confirmDelete(col: string, idx: number) {
@@ -204,7 +366,7 @@ export default function KanbanBoard(): React.ReactElement {
       const answer = window.prompt("Type 'delete' to confirm deleting this task:");
       if (!answer) return;
       if (answer.toLowerCase() !== 'delete') return;
-      deleteCard(col, idx);
+      removeCardLocal(col, idx);
     } catch {
       // ignore
     }
@@ -214,12 +376,12 @@ export default function KanbanBoard(): React.ReactElement {
     <div className="text-slate-900 dark:text-slate-100 p-[10px] overflow-x-scroll ">
 
       <header className="px-4 py-3 text-lg font-semibold">
-        {currentGroup ? `${currentGroup} — ${userEmail ?? 'anonymous'}` : 'BugHerd-Style Professional Kanban'}
+        {currentGroup ? `${currentGroup}` : 'BugHerd-Style Professional Kanban'}
       </header>
 
       <div className="overflow-x-auto px-4 pb-6">
         <div className="flex gap-4 min-w-max h-[calc(100vh-140px)]">
-          {COLUMNS.map((col) => (
+          {columns.map((col) => (
             <div key={col} className="w-80 bg-slate-100 dark:bg-slate-800 rounded-md p-3 flex flex-col border-2 border-gray-200 dark:border-gray-700">
                  
               <div className="flex items-center justify-between mb-3">
