@@ -19,6 +19,25 @@ import type { Column as ColumnType, Card as CardType } from '../types';
 type ColumnRow = { id: string; title: string; position: number };
 type CardRow = { id: string; title: string; description?: string; column_id: string | null; order_index?: number; priority?: string; assignee_id?: string | null; assignee_email?: string; due_date?: string; process_link?: string; bugherd_link?: string; created_by?: string | null; created_at?: string; updated_at?: string };
 
+// TaskRow exposes the canonical tasks table shape
+export type TaskRow = {
+  id: string;
+  group_id: string | null;
+  column_id: string | null;
+  title: string;
+  description?: string | null;
+  priority?: string | null;
+  assignee_id?: string | null;
+  assignee_email?: string | null;
+  due_date?: string | null;
+  process_link?: string | null;
+  bugherd_link?: string | null;
+  order_index?: number | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export async function getSetting(key: string): Promise<string | null> {
   const userRes = await supabase.auth.getUser();
   const user: User | null = userRes?.data?.user ?? null;
@@ -61,6 +80,17 @@ export async function getCards(): Promise<CardType[]> {
   const { data, error } = await query;
   if (error || !data) return [];
   return (data as CardRow[]).map((r) => ({ id: r.id, title: r.title, description: r.description ?? '', columnId: r.column_id ?? '', position: (r as any).order_index ?? 0, priority: (r as any).priority, assignee_id: (r as any).assignee_id, assignee_email: (r as any).assignee_email, due_date: (r as any).due_date, process_link: (r as any).process_link, bugherd_link: (r as any).bugherd_link, created_by: (r as any).created_by, created_at: (r as any).created_at, updated_at: (r as any).updated_at }));
+}
+
+export async function getTasks(groupId?: string) {
+  const userRes = await supabase.auth.getUser();
+  const user: User | null = userRes?.data?.user ?? null;
+  let query = supabase.from('tasks').select('*').order('order_index', { ascending: true });
+  if (groupId) query = query.eq('group_id', groupId);
+  if (user) query = query.eq('user_id', user.id);
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data as TaskRow[];
 }
 
 export async function upsertCards(cards: CardType[]) {
@@ -174,9 +204,9 @@ export function signOut() {
   return supabase.auth.signOut();
 }
 
-export async function fetchBoard() {
-  const [cols, cds] = await Promise.all([getColumns(), getCards()]);
-  return { columns: cols, cards: cds };
+export async function fetchBoard(groupId?: string) {
+  const [cols, tasks] = await Promise.all([getColumns(), getTasks(groupId)]);
+  return { columns: cols, cards: tasks };
 }
 
 // Groups and members

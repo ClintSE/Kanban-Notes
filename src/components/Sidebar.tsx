@@ -37,7 +37,13 @@ export default function Sidebar(): React.ReactElement {
   async function load() {
     const res = await fetchBoard();
     setColumns(res.columns);
-    setCards(res.cards);
+    // map server task rows to local Card type
+    try {
+      const mapped = (res.cards || []).map((r: any) => ({ id: r.id, title: r.title, description: r.description || '', columnId: r.column_id || '', position: (r.order_index ?? r.position) || 0 }));
+      setCards(mapped);
+    } catch {
+      setCards([]);
+    }
   }
 
   useEffect(() => {

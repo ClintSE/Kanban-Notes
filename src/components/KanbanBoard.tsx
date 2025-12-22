@@ -48,6 +48,7 @@ export default function KanbanBoard(): React.ReactElement {
     }
   });
   const [currentGroup, setCurrentGroup] = useState<string | null>(null);
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const [columns, setColumns] = useState<string[]>(DEFAULT_COLUMNS);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [currentMembers, setCurrentMembers] = useState<Member[]>([]);
@@ -67,9 +68,9 @@ export default function KanbanBoard(): React.ReactElement {
   const colIdToTitle = useRef<Record<string,string>>({});
 
   useEffect(() => {
-    async function loadFromServer() {
+    async function loadFromServer(groupId?: string) {
       try {
-        const board = await fetchBoard();
+        const board = await fetchBoard(groupId);
         const cols = board.columns || [];
         const cards = board.cards || [];
         // populate column mappings
@@ -113,8 +114,9 @@ export default function KanbanBoard(): React.ReactElement {
       const group = e?.detail;
       if (!group || !group.name) return;
       setCurrentGroup(group.name);
+      setCurrentGroupId(group.id || null);
       setCurrentMembers(group.members || []);
-      loadFromServer();
+      loadFromServer(group.id);
     }
 
     function onUser(e: any) {
@@ -230,6 +232,8 @@ export default function KanbanBoard(): React.ReactElement {
           description: data.comments || '',
           column_id: getColumnId(editing.col) || existing?.columnId || null,
           order_index: existing?.position ?? editing.idx,
+          group_id: currentGroupId || existing?.groupId || null,
+          created_by: existing?.createdBy || (currentMembers.find(m=>m.email===userEmail)?.id || null),
           priority: data.priority || 'low',
           assignee_id: assigneeId,
           assignee_email: assigneeEmail,
@@ -248,6 +252,8 @@ export default function KanbanBoard(): React.ReactElement {
           description: data.comments || '',
           column_id: colId,
           order_index: pos,
+          group_id: currentGroupId || null,
+          created_by: currentMembers.find(m=>m.email===userEmail)?.id || null,
           priority: data.priority || 'low',
           assignee_id: assigneeId,
           assignee_email: data.assignee || '',
@@ -271,7 +277,7 @@ export default function KanbanBoard(): React.ReactElement {
       allTitles.forEach(t => nextState[t] = []);
       cards.forEach((r:any) => {
         const colTitle = idToTitle[r.column_id] || allTitles[0];
-        const uiCard: any = {
+          const uiCard: any = {
           id: r.id,
           title: r.title,
           comments: r.description || '',
@@ -281,8 +287,12 @@ export default function KanbanBoard(): React.ReactElement {
           dueDate: (r as any).due_date || '',
           processLink: (r as any).process_link || '',
           bugherdLink: (r as any).bugherd_link || '',
-          position: (r as any).order_index ?? 0,
-          columnId: r.column_id
+            position: (r as any).order_index ?? 0,
+            columnId: r.column_id,
+            groupId: (r as any).group_id || null,
+            createdBy: (r as any).created_by || null,
+            createdAt: (r as any).created_at || null,
+            updatedAt: (r as any).updated_at || null
         };
         if (!nextState[colTitle]) nextState[colTitle] = [];
         nextState[colTitle].push(uiCard);
